@@ -282,6 +282,8 @@
           display: flex;
           align-items: center;
           justify-content: space-between;
+          flex-wrap: wrap;
+          gap: 0.75rem 1.25rem;
           padding: 0.9rem 1rem;
           border-radius: var(--ha-card-border-radius, 12px);
           background: var(--card-background-color, rgba(0, 0, 0, 0.03));
@@ -310,6 +312,8 @@
           display: flex;
           flex-direction: column;
           gap: 0.25rem;
+          flex: 1 1 200px;
+          min-width: 0;
         }
         .container-name {
           font-weight: 600;
@@ -331,6 +335,7 @@
           display: flex;
           align-items: center;
           gap: 0.75rem;
+          flex: 0 0 auto;
         }
         .restart-button {
           border: 1px solid var(--divider-color, rgba(0, 0, 0, 0.12));
@@ -367,15 +372,6 @@
           }
           .docker-grid {
             grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-          }
-          .container-row {
-            flex-direction: column;
-            align-items: flex-start;
-            gap: 0.75rem;
-          }
-          .actions {
-            width: 100%;
-            justify-content: flex-start;
           }
         }
       `;

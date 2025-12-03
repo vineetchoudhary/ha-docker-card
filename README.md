@@ -8,6 +8,7 @@ A simple Lovelace card that lets you view and control your Docker containers fro
 - Auto-updating container list with live state badges and control actions
 - Theme-aware styling with configurable running vs not-running accent colors
 - Works out-of-the-box with entities provided by the Portainer integration; also supports any toggle-friendly domains (`switch`, `input_boolean`, `light`, etc.)
+- Optional tap/hold actions per container row for quick navigation, service calls, or external links
 
 ## Requirements
 
@@ -34,9 +35,6 @@ A simple Lovelace card that lets you view and control your Docker containers fro
    url: /local/docker-card/docker-card.js
    type: module
    ```
-3. Reload the browser cache (`Ctrl/Cmd + Shift + R`).
-
-## Lovelace configuration
 
 Basic card setup (YAML) using entities exposed by the Portainer integration:
 
@@ -59,10 +57,21 @@ containers:
     status_entity: sensor.docker_homeassistant_status
     control_entity: switch.docker_homeassistant
     restart_entity: switch.docker_restart_homeassistant
+    tap_action:
+      action: more-info
+    hold_action:
+      action: url
+      url_path: https://portainer.local/#!/2/docker/containers/homeassistant
   - name: Node-RED
     status_entity: sensor.docker_nodered_status
     control_entity: switch.docker_nodered
     restart_entity: button.docker_restart_nodered
+    tap_action:
+      action: toggle
+    hold_action:
+      action: call-service
+      service: script.trigger_container_diagnostics
+```
 
 ## Quick Start (Portainer integration)
 
@@ -72,7 +81,6 @@ containers:
 4. Optionally tweak `running_color` or `not_running_color` to match your theme.
 
 You now have an interactive Docker control panel that stays in sync with Portainer.
-```
 
 ### Supported options
 
@@ -94,6 +102,9 @@ You now have an interactive Docker control panel that stays in sync with Portain
 | `containers[].not_running_color` | No | Per-container override for the not-running border/accent color |
 | `containers[].running_states` | No | Custom list of states that count as “running” |
 | `containers[].stopped_states` | No | Custom list of states that count as “stopped” |
+| `containers[].tap_action` | No | Action to run when the row is tapped/clicked (standard Lovelace action object) |
+| `containers[].hold_action` | No | Action to run on hold/long-press (supports the same syntax as `tap_action`) |
+| `containers[].hold_delay` | No | Hold detection delay in milliseconds (defaults to 500) |
 
 > Tip: `binary_sensor` entities are read-only. Use a `switch`, `input_boolean`, `light`, or similar domain for `control_entity` so the card can call `turn_on`/`turn_off`.
 

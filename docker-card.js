@@ -288,10 +288,10 @@
           border: 1px solid var(--divider-color, rgba(0, 0, 0, 0.08));
           transition: border-color 0.2s ease, box-shadow 0.2s ease;
         }
-        .container-row.clickable {
+        .container-row.actionable {
           cursor: pointer;
         }
-        .container-row.clickable:focus-visible {
+        .container-row.actionable:focus-visible {
           outline: 2px solid var(--primary-color);
           outline-offset: 2px;
         }
@@ -607,30 +607,7 @@
         actions.appendChild(restartButton);
 
         row.appendChild(actions);
-
-        if (statusInfo.entityId) {
-          row.classList.add("clickable");
-          row.setAttribute("role", "button");
-          row.setAttribute("tabindex", "0");
-          const label = (name.textContent || "").trim() || "Container";
-          row.setAttribute("aria-label", `${label} details`);
-          const openDetails = () => this._showMoreInfo(statusInfo.entityId);
-          row.addEventListener("click", (event) => {
-            if (this._isInteractiveTarget(event)) {
-              return;
-            }
-            openDetails();
-          });
-          row.addEventListener("keydown", (event) => {
-            if (event.currentTarget !== event.target) {
-              return;
-            }
-            if (event.key === "Enter" || event.key === " " || event.key === "Space") {
-              event.preventDefault();
-              openDetails();
-            }
-          });
-        }
+        this._attachContainerActions(row, container, statusInfo, name.textContent || "");
 
         list.appendChild(row);
       });
@@ -770,6 +747,252 @@
       this.dispatchEvent(event);
     }
 
+    _attachContainerActions(row, container, statusInfo, labelText) {
+      let tapAction = this._normalizeActionConfig(container.tap_action);
+      let holdAction = this._normalizeActionConfig(container.hold_action);
+
+      if (tapAction && tapAction.action === "none") {
+        tapAction = undefined;
+      }
+      if (holdAction && holdAction.action === "none") {
+        holdAction = undefined;
+      }
+
+      if (!tapAction && !holdAction) {
+        return;
+      }
+
+      const defaultEntity =
+        statusInfo.entityId || container.status_entity || container.control_entity || container.switch_entity;
+
+      row.classList.add("actionable");
+      row.setAttribute("role", "button");
+      row.setAttribute("tabindex", "0");
+      const readableLabel = (labelText || "").trim() || container.name || "Container";
+      row.setAttribute("aria-label", readableLabel);
+
+      const holdDelay = typeof container.hold_delay === "number" && container.hold_delay >= 0 ? container.hold_delay : 500;
+      let holdTimer = null;
+      let holdActivated = false;
+      let keyboardClickSuppressed = false;
+
+      const clearHoldTimer = () => {
+        if (holdTimer) {
+          window.clearTimeout(holdTimer);
+          holdTimer = null;
+        }
+      };
+
+      const pointerDownHandler = (event) => {
+        if (this._isInteractiveTarget(event)) {
+          return;
+        }
+        if (typeof event.button === "number" && event.button !== 0) {
+          return;
+        }
+        keyboardClickSuppressed = false;
+        holdActivated = false;
+        clearHoldTimer();
+        if (!holdAction) {
+          return;
+        }
+        holdTimer = window.setTimeout(() => {
+          holdTimer = null;
+          holdActivated = true;
+          this._handleContainerAction(holdAction, defaultEntity);
+        }, holdDelay);
+      };
+
+      const pointerUpHandler = (event) => {
+        if (this._isInteractiveTarget(event)) {
+          clearHoldTimer();
+          holdActivated = false;
+          return;
+        }
+        clearHoldTimer();
+        keyboardClickSuppressed = false;
+      };
+
+      const pointerCancelHandler = () => {
+        clearHoldTimer();
+        holdActivated = false;
+        keyboardClickSuppressed = false;
+      };
+
+      const clickHandler = (event) => {
+        if (this._isInteractiveTarget(event)) {
+          return;
+        }
+        if (keyboardClickSuppressed) {
+          keyboardClickSuppressed = false;
+          return;
+        }
+        if (holdActivated) {
+          holdActivated = false;
+          return;
+        }
+        if (tapAction) {
+          this._handleContainerAction(tapAction, defaultEntity);
+        }
+      };
+
+      const keydownHandler = (event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          keyboardClickSuppressed = true;
+          if (tapAction) {
+            this._handleContainerAction(tapAction, defaultEntity);
+          }
+        }
+        if ((event.key === " " || event.key === "Space" || event.key === "Spacebar") && holdAction) {
+          event.preventDefault();
+          holdActivated = true;
+          keyboardClickSuppressed = true;
+          this._handleContainerAction(holdAction, defaultEntity);
+        }
+      };
+
+      const keyupHandler = (event) => {
+        if ((event.key === " " || event.key === "Space" || event.key === "Spacebar") && holdAction) {
+          event.preventDefault();
+          holdActivated = false;
+        }
+      };
+
+      row.addEventListener("pointerdown", pointerDownHandler);
+      row.addEventListener("pointerup", pointerUpHandler);
+      row.addEventListener("pointercancel", pointerCancelHandler);
+      row.addEventListener("pointerleave", pointerCancelHandler);
+      row.addEventListener("click", clickHandler);
+      row.addEventListener("keydown", keydownHandler);
+      row.addEventListener("keyup", keyupHandler);
+    }
+
+    _normalizeActionConfig(action) {
+      if (!action) {
+        return undefined;
+      }
+      if (typeof action === "string") {
+        return { action };
+      }
+      if (typeof action !== "object") {
+        return undefined;
+      }
+      if (!action.action) {
+        if (action.service || action.service_data || action.data || action.target) {
+          return { ...action, action: "call-service" };
+        }
+        if (action.navigation_path || action.path) {
+          return { ...action, action: "navigate" };
+        }
+        if (action.url || action.url_path) {
+          return { ...action, action: "url" };
+        }
+        if (action.entity) {
+          return { ...action, action: "more-info" };
+        }
+        return { ...action, action: "more-info" };
+      }
+      return { ...action };
+    }
+
+    _handleContainerAction(actionConfig, defaultEntity) {
+      const config = this._normalizeActionConfig(actionConfig);
+      if (!config || config.action === "none") {
+        return;
+      }
+
+      switch (config.action) {
+        case "more-info": {
+          const entityId = config.entity || defaultEntity;
+          if (entityId) {
+            this._showMoreInfo(entityId);
+          }
+          break;
+        }
+        case "navigate": {
+          const path = config.navigation_path || config.path;
+          if (path) {
+            const event = new CustomEvent("navigate", {
+              bubbles: true,
+              composed: true,
+              detail: { path },
+            });
+            this.dispatchEvent(event);
+          }
+          break;
+        }
+        case "url": {
+          const url = config.url_path || config.url;
+          if (url) {
+            const target = config.new_tab === false ? "_self" : "_blank";
+            const features = target === "_blank" ? "noreferrer" : undefined;
+            window.open(url, target, features);
+          }
+          break;
+        }
+        case "call-service": {
+          if (!this._hass) {
+            return;
+          }
+          const serviceString = config.service || config.service_name;
+          let domain;
+          let service;
+          if (serviceString && typeof serviceString === "string") {
+            const [svcDomain, svcName] = serviceString.split(".");
+            if (svcDomain && svcName) {
+              domain = svcDomain;
+              service = svcName;
+            }
+          }
+          if (!domain) {
+            domain = config.domain;
+          }
+          if (!service) {
+            service = config.service;
+          }
+          if (!domain || !service) {
+            console.warn("docker-card: call-service action missing domain/service", config);
+            return;
+          }
+          const data = { ...(config.service_data || config.data || {}) };
+          if (config.entity && !data.entity_id) {
+            data.entity_id = config.entity;
+          } else if (!data.entity_id && defaultEntity) {
+            data.entity_id = defaultEntity;
+          }
+          const target = config.target;
+          if (target) {
+            this._hass.callService(domain, service, data, target);
+          } else {
+            this._hass.callService(domain, service, data);
+          }
+          break;
+        }
+        case "fire-dom-event": {
+          const eventName = config.event || config.event_type || "ll-custom";
+          const detail = config.event_data || config.data || {};
+          const event = new CustomEvent(eventName, {
+            detail,
+            bubbles: true,
+            composed: true,
+          });
+          this.dispatchEvent(event);
+          break;
+        }
+        case "toggle": {
+          const entityId = config.entity || defaultEntity;
+          if (entityId && this._hass) {
+            this._toggleEntity(entityId);
+          }
+          break;
+        }
+        default: {
+          console.warn("docker-card: Unsupported action", config);
+        }
+      }
+    }
+
     _isInteractiveTarget(event) {
       if (!event || !event.target) {
         return false;
@@ -784,6 +1007,13 @@
 
     _entityDomain(entityId) {
       return domainFromEntityId(entityId);
+    }
+
+    _toggleEntity(entityId) {
+      if (!this._hass || !entityId) {
+        return;
+      }
+      this._hass.callService("homeassistant", "toggle", { entity_id: entityId });
     }
 
     _toggleCapability(entityId, domainOverride) {

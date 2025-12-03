@@ -199,6 +199,13 @@
           background: var(--docker-card-running-color, var(--primary-color));
           color: var(--text-primary-color, #fff);
         }
+        .status-pill.actionable {
+          cursor: pointer;
+        }
+        .status-pill.actionable:focus-visible {
+          outline: 2px solid var(--primary-color);
+          outline-offset: 2px;
+        }
         .status-pill.running {
           background: var(--docker-card-running-color, var(--state-active-color, var(--success-color, #2e8f57)));
         }
@@ -225,6 +232,18 @@
           background: var(--card-background-color, rgba(0, 0, 0, 0.04));
           border: 1px solid var(--divider-color, rgba(0, 0, 0, 0.08));
           min-height: 52px;
+        }
+        .overview-item.actionable {
+          cursor: pointer;
+          transition: border-color 0.2s ease, box-shadow 0.2s ease;
+        }
+        .overview-item.actionable:hover {
+          border-color: var(--primary-color);
+          box-shadow: 0 4px 10px rgba(0, 0, 0, 0.08);
+        }
+        .overview-item.actionable:focus-visible {
+          outline: 2px solid var(--primary-color);
+          outline-offset: 2px;
         }
         .overview-badge {
           width: 2.1rem;
@@ -455,6 +474,9 @@
         statusPill.style.removeProperty("background");
       }
       statusPill.textContent = status.label;
+      if (status.entityId) {
+        this._makeElementActionable(statusPill, status.entityId, "Open Docker status details");
+      }
       wrapper.appendChild(statusPill);
 
       return wrapper;
@@ -493,17 +515,36 @@
           typeof runningCount === "number" && typeof totalCount === "number" && runningCount !== totalCount
             ? "not-running"
             : "running";
-        overviewItems.push({ label: "Running / Total", value: runningValue, badge: "rt", cssClass: varianceClass });
+        overviewItems.push({
+          label: "Running / Total",
+          value: runningValue,
+          badge: "rt",
+          cssClass: varianceClass,
+          entityId: running.entityId,
+          ariaLabel: "Open running containers details",
+        });
       }
 
       const imageValue = this._formatStateValue(images.state);
       if (!this._isPlaceholderValue(imageValue)) {
-        overviewItems.push({ label: "Images", value: imageValue, badge: "img" });
+        overviewItems.push({
+          label: "Images",
+          value: imageValue,
+          badge: "img",
+          entityId: images.entityId,
+          ariaLabel: "Open Docker images details",
+        });
       }
 
       const dockerValue = this._formatStateValue(dockerVersion.state);
       if (!this._isPlaceholderValue(dockerValue)) {
-        overviewItems.push({ label: "Docker", value: dockerValue, badge: "doc" });
+        overviewItems.push({
+          label: "Docker",
+          value: dockerValue,
+          badge: "doc",
+          entityId: dockerVersion.entityId,
+          ariaLabel: "Open Docker version details",
+        });
       }
 
       const osLabel = this._formatStateValue(osName.state);
@@ -517,7 +558,13 @@
         osValue = osVersionLabel;
       }
       if (!this._isPlaceholderValue(osValue)) {
-        overviewItems.push({ label: "OS", value: osValue, badge: "os" });
+        overviewItems.push({
+          label: "OS",
+          value: osValue,
+          badge: "os",
+          entityId: osVersion.entityId || osName.entityId,
+          ariaLabel: "Open operating system details",
+        });
       }
 
       if (!overviewItems.length) {
@@ -555,6 +602,9 @@
         text.appendChild(value);
 
         pill.appendChild(text);
+        if (item.entityId) {
+          this._makeElementActionable(pill, item.entityId, item.ariaLabel || `Open ${item.label} details`);
+        }
         overview.appendChild(pill);
       });
 
@@ -809,6 +859,50 @@
         detail: { entityId },
       });
       this.dispatchEvent(event);
+    }
+
+    _makeElementActionable(element, entityId, ariaLabel) {
+      if (!element || !entityId) {
+        return;
+      }
+
+      element.classList.add("actionable");
+      element.setAttribute("role", "button");
+      element.setAttribute("tabindex", "0");
+      if (ariaLabel) {
+        element.setAttribute("aria-label", ariaLabel);
+      }
+
+      let keyboardClickSuppressed = false;
+
+      element.addEventListener("click", (event) => {
+        if (keyboardClickSuppressed) {
+          keyboardClickSuppressed = false;
+          return;
+        }
+        this._showMoreInfo(entityId);
+      });
+
+      element.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" || event.key === " " || event.key === "Space" || event.key === "Spacebar") {
+          keyboardClickSuppressed = true;
+        }
+        if (event.key === "Enter") {
+          event.preventDefault();
+          this._showMoreInfo(entityId);
+        }
+        if (event.key === " " || event.key === "Space" || event.key === "Spacebar") {
+          event.preventDefault();
+        }
+      });
+
+      element.addEventListener("keyup", (event) => {
+        if (event.key === " " || event.key === "Space" || event.key === "Spacebar") {
+          event.preventDefault();
+          this._showMoreInfo(entityId);
+        }
+        keyboardClickSuppressed = false;
+      });
     }
 
     _attachContainerActions(row, container, statusInfo, labelText) {
@@ -1272,7 +1366,7 @@
       const tone = normalized.tone || "idle";
       const accent = this._statusAccent(tone);
 
-      return { label, cssClass, tone, accent };
+      return { label, cssClass, tone, accent, entityId };
     }
 
     _normalizeStatus(state) {

@@ -7,6 +7,81 @@
 (function () {
   const CARD_NAME = "docker-card";
   const CARD_DESCRIPTION = "Modern Docker container overview with start/stop toggles and restart actions.";
+  const DEFAULT_LANGUAGE = "en";
+  const DEFAULT_TRANSLATIONS = {
+    common: {
+      card_title: "Docker Card",
+      container: "container",
+      containers: "Containers",
+    },
+    placeholders: {
+      waiting: "Waiting for Home Assistant…",
+      no_containers: "No containers configured.",
+    },
+    overview: {
+      running_total: "Running / Total",
+      images: "Images",
+      docker: "Docker",
+      os: "OS",
+      running_total_aria: "Open running containers details",
+      images_aria: "Open Docker images details",
+      docker_aria: "Open Docker version details",
+      os_aria: "Open operating system details",
+    },
+    aria: {
+      open_status_details: "Open Docker status details",
+      collapse_containers: "Collapse container list",
+      expand_containers: "Expand container list",
+    },
+    actions: {
+      start: "start",
+      stop: "stop",
+      restart: "Restart",
+      start_container: "Start container",
+      stop_container: "Stop container",
+    },
+    notifications: {
+      starting: "Starting {name}…",
+      stopping: "Stopping {name}…",
+      failed_start: "Failed to start {name}. Check logs.",
+      failed_stop: "Failed to stop {name}. Check logs.",
+      restarting: "Restarting {name}…",
+      failed_restart: "Failed to restart {name}.",
+      missing_toggle: "No service configured to {action} {name}.",
+      missing_restart: "No restart service configured for {name}.",
+    },
+    status: {
+      online: "Online",
+      offline: "Offline",
+      idle: "Idle",
+      running: "Running",
+      stopped: "Stopped",
+      unknown: "Unknown",
+      starting: "Starting",
+      degraded: "Degraded",
+      paused: "Paused",
+    },
+  };
+  const TRANSLATION_CACHE = new Map([[DEFAULT_LANGUAGE, DEFAULT_TRANSLATIONS]]);
+  const TRANSLATION_PROMISES = new Map();
+  const MODULE_BASE_URL = (() => {
+    if (typeof document === "undefined") {
+      return undefined;
+    }
+    const script = document.currentScript;
+    if (script && script.src) {
+      try {
+        const url = new URL(script.src, typeof window !== "undefined" ? window.location.href : undefined);
+        url.hash = "";
+        url.search = "";
+        url.pathname = url.pathname.replace(/[^/]+$/, "");
+        return url.toString();
+      } catch (error) {
+        console.warn("docker-card: Unable to determine base URL for translations", error);
+      }
+    }
+    return undefined;
+  })();
 
   if (typeof window !== "undefined") {
     window.customCards = window.customCards || [];
@@ -88,7 +163,6 @@
       );
 
       this.config = {
-        title: "Docker Card",
         running_states: ["running", "on", "started", "up"],
         stopped_states: ["stopped", "off", "exited", "down", "inactive"],
         running_color: "var(--state-active-color, var(--success-color, #2e8f57))",
@@ -142,7 +216,7 @@
       }
 
       if (!this._hass) {
-        card.innerHTML = "<div class='placeholder'>Waiting for Home Assistant…</div>";
+        card.innerHTML = `<div class='placeholder'>${this._localize("placeholders.waiting")}</div>`;
         return;
       }
 
@@ -448,7 +522,7 @@
 
       const title = document.createElement("div");
       title.classList.add("title");
-      title.textContent = this.config.title || "Docker Card";
+      title.textContent = this.config.title || this._localize("common.card_title");
       wrapper.appendChild(title);
 
       const status = this._computeOverallStatus();
@@ -475,7 +549,7 @@
       }
       statusPill.textContent = status.label;
       if (status.entityId) {
-        this._makeElementActionable(statusPill, status.entityId, "Open Docker status details");
+        this._makeElementActionable(statusPill, status.entityId, this._localize("aria.open_status_details"));
       }
       wrapper.appendChild(statusPill);
 
@@ -516,34 +590,34 @@
             ? "not-running"
             : "running";
         overviewItems.push({
-          label: "Running / Total",
+          label: this._localize("overview.running_total"),
           value: runningValue,
           badge: "rt",
           cssClass: varianceClass,
           entityId: running.entityId,
-          ariaLabel: "Open running containers details",
+          ariaLabel: this._localize("overview.running_total_aria"),
         });
       }
 
       const imageValue = this._formatStateValue(images.state);
       if (!this._isPlaceholderValue(imageValue)) {
         overviewItems.push({
-          label: "Images",
+          label: this._localize("overview.images"),
           value: imageValue,
           badge: "img",
           entityId: images.entityId,
-          ariaLabel: "Open Docker images details",
+          ariaLabel: this._localize("overview.images_aria"),
         });
       }
 
       const dockerValue = this._formatStateValue(dockerVersion.state);
       if (!this._isPlaceholderValue(dockerValue)) {
         overviewItems.push({
-          label: "Docker",
+          label: this._localize("overview.docker"),
           value: dockerValue,
           badge: "doc",
           entityId: dockerVersion.entityId,
-          ariaLabel: "Open Docker version details",
+          ariaLabel: this._localize("overview.docker_aria"),
         });
       }
 
@@ -559,11 +633,11 @@
       }
       if (!this._isPlaceholderValue(osValue)) {
         overviewItems.push({
-          label: "OS",
+          label: this._localize("overview.os"),
           value: osValue,
           badge: "os",
           entityId: osVersion.entityId || osName.entityId,
-          ariaLabel: "Open operating system details",
+          ariaLabel: this._localize("overview.os_aria"),
         });
       }
 
@@ -625,13 +699,15 @@
       toggleButton.setAttribute("aria-controls", this._containerListId);
       toggleButton.setAttribute(
         "aria-label",
-        this._containersExpanded ? "Collapse container list" : "Expand container list",
+        this._containersExpanded
+          ? this._localize("aria.collapse_containers")
+          : this._localize("aria.expand_containers"),
       );
       toggleButton.addEventListener("click", () => this._toggleContainers());
 
       const title = document.createElement("span");
       title.classList.add("section-title");
-      title.textContent = "Containers";
+      title.textContent = this._localize("common.containers");
       toggleButton.appendChild(title);
 
       const chevron = document.createElement("span");
@@ -651,7 +727,7 @@
       if (!containers.length) {
         const hint = document.createElement("div");
         hint.classList.add("empty-hint");
-        hint.textContent = "No containers configured.";
+        hint.textContent = this._localize("placeholders.no_containers");
         list.appendChild(hint);
         return section;
       }
@@ -698,7 +774,9 @@
         const toggle = document.createElement("ha-switch");
         toggle.checked = statusInfo.isRunning;
         toggle.disabled = !statusInfo.canToggle || this._pending.has(key);
-        toggle.title = statusInfo.isRunning ? "Stop container" : "Start container";
+        toggle.title = statusInfo.isRunning
+          ? this._localize("actions.stop_container")
+          : this._localize("actions.start_container");
         toggle.addEventListener("change", (event) => {
           event.stopPropagation();
           const target = event.target;
@@ -712,7 +790,7 @@
 
         const restartButton = document.createElement("button");
         restartButton.classList.add("restart-button");
-        restartButton.textContent = "Restart";
+        restartButton.textContent = this._localize("actions.restart");
         restartButton.disabled = !statusInfo.canRestart || this._pending.has(key);
         restartButton.addEventListener("click", (event) => {
           event.stopPropagation();
@@ -847,6 +925,102 @@
         canToggle,
         canRestart,
       };
+    }
+
+    _containerDisplayName(container) {
+      if (!container || typeof container !== "object") {
+        return this._localize("common.container");
+      }
+      if (container.name) {
+        return container.name;
+      }
+      const fallbackEntity =
+        container.status_entity ||
+        container.control_entity ||
+        container.switch_entity ||
+        container.restart_entity;
+      const friendly = fallbackEntity ? this._friendlyName(fallbackEntity) : undefined;
+      return friendly || this._localize("common.container");
+    }
+
+    _translationUrl(language) {
+      if (!language || !MODULE_BASE_URL) {
+        return undefined;
+      }
+      try {
+        return new URL(`translations/${language}.json`, MODULE_BASE_URL).toString();
+      } catch (error) {
+        console.warn("docker-card: Failed to resolve translation URL", language, error);
+        return undefined;
+      }
+    }
+
+    _maybeLoadTranslations(language) {
+      if (!language || language === DEFAULT_LANGUAGE) {
+        return;
+      }
+      if (TRANSLATION_CACHE.has(language) || TRANSLATION_PROMISES.has(language)) {
+        return;
+      }
+      const url = this._translationUrl(language);
+      if (!url) {
+        return;
+      }
+      const loadPromise = fetch(url)
+        .then((response) => {
+          if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+          }
+          return response.json();
+        })
+        .then((data) => {
+          if (data && typeof data === "object") {
+            TRANSLATION_CACHE.set(language, data);
+            this.render();
+          }
+        })
+        .catch((error) => {
+          console.warn(`docker-card: Failed to load ${language} translations`, error);
+        })
+        .finally(() => {
+          TRANSLATION_PROMISES.delete(language);
+        });
+      TRANSLATION_PROMISES.set(language, loadPromise);
+    }
+
+    _localize(key, replacements) {
+      if (!key) {
+        return "";
+      }
+      const language = this._hass?.selectedLanguage || this._hass?.language || DEFAULT_LANGUAGE;
+      this._maybeLoadTranslations(language);
+      const translations = TRANSLATION_CACHE.get(language) || TRANSLATION_CACHE.get(DEFAULT_LANGUAGE) || DEFAULT_TRANSLATIONS;
+      const raw = this._getTranslationValue(translations, key) || this._getTranslationValue(DEFAULT_TRANSLATIONS, key) || key;
+      return this._applyReplacements(raw, replacements);
+    }
+
+    _getTranslationValue(tree, key) {
+      if (!tree || typeof tree !== "object" || !key) {
+        return undefined;
+      }
+      return key.split(".").reduce((acc, segment) => {
+        if (acc && Object.prototype.hasOwnProperty.call(acc, segment)) {
+          return acc[segment];
+        }
+        return undefined;
+      }, tree);
+    }
+
+    _applyReplacements(input, replacements) {
+      if (!input || !replacements || typeof input !== "string" || typeof replacements !== "object") {
+        return input;
+      }
+      return input.replace(/\{([^}]+)\}/g, (match, key) => {
+        if (Object.prototype.hasOwnProperty.call(replacements, key)) {
+          return replacements[key];
+        }
+        return match;
+      });
     }
 
     _showMoreInfo(entityId) {
@@ -1237,10 +1411,12 @@
       }
 
       const action = shouldRun ? "start" : "stop";
+      const displayName = this._containerDisplayName(container);
+      const actionWord = shouldRun ? this._localize("actions.start") : this._localize("actions.stop");
       const serviceConfig = this._resolveToggleService(container, shouldRun);
 
       if (!serviceConfig) {
-        this._notify(`No service configured to ${action} ${(container.name || "container")}.`);
+        this._notify(this._localize("notifications.missing_toggle", { action: actionWord, name: displayName }));
         toggleEl.checked = !shouldRun;
         return;
       }
@@ -1251,10 +1427,18 @@
 
       try {
         await this._callService(serviceConfig);
-        this._notify(`${action === "start" ? "Starting" : "Stopping"} ${container.name || "container"}…`);
+        this._notify(
+          shouldRun
+            ? this._localize("notifications.starting", { name: displayName })
+            : this._localize("notifications.stopping", { name: displayName }),
+        );
       } catch (error) {
         console.error("docker-card toggle error", error);
-        this._notify(`Failed to ${action} ${container.name || "container"}. Check logs.`);
+        this._notify(
+          shouldRun
+            ? this._localize("notifications.failed_start", { name: displayName })
+            : this._localize("notifications.failed_stop", { name: displayName }),
+        );
         toggleEl.checked = !shouldRun;
       } finally {
         this._pending.delete(key);
@@ -1269,8 +1453,9 @@
       }
 
       const serviceConfig = this._getRestartService(container);
+      const displayName = this._containerDisplayName(container);
       if (!serviceConfig) {
-        this._notify(`No restart service configured for ${container.name || "container"}.`);
+        this._notify(this._localize("notifications.missing_restart", { name: displayName }));
         return;
       }
 
@@ -1281,10 +1466,10 @@
 
       try {
         await this._callService(serviceConfig);
-        this._notify(`Restarting ${container.name || "container"}…`);
+        this._notify(this._localize("notifications.restarting", { name: displayName }));
       } catch (error) {
         console.error("docker-card restart error", error);
-        this._notify(`Failed to restart ${container.name || "container"}.`);
+        this._notify(this._localize("notifications.failed_restart", { name: displayName }));
       } finally {
         this._pending.delete(key);
         buttonEl.disabled = false;
@@ -1361,7 +1546,7 @@
       const entity = entityId ? this._getEntity(entityId) : undefined;
       const rawState = entity ? entity.state : undefined;
       const normalized = this._normalizeStatus(rawState);
-      const label = normalized.label || "Unknown";
+      const label = normalized.label || this._localize("status.unknown");
       const cssClass = normalized.cssClass || "idle";
       const tone = normalized.tone || "idle";
       const accent = this._statusAccent(tone);
@@ -1371,19 +1556,26 @@
 
     _normalizeStatus(state) {
       if (!state) {
-        return { label: "Unknown", cssClass: "idle", tone: "idle" };
+        return { label: this._localize("status.unknown"), cssClass: "idle", tone: "idle" };
       }
 
       const value = state.toString().toLowerCase();
       if (["on", "running", "online", "ok", "true", "ready"].includes(value)) {
-        return { label: "Online", cssClass: "running", tone: "running" };
+        return { label: this._localize("status.online"), cssClass: "running", tone: "running" };
       }
       if (["off", "offline", "error", "problem", "false", "down"].includes(value)) {
-        return { label: "Offline", cssClass: "offline", tone: "not_running" };
+        return { label: this._localize("status.offline"), cssClass: "offline", tone: "not_running" };
       }
-      if (["starting", "degraded", "paused", "unknown", "idle"].includes(value)) {
+      const transitional = {
+        starting: "status.starting",
+        degraded: "status.degraded",
+        paused: "status.paused",
+        unknown: "status.unknown",
+        idle: "status.idle",
+      };
+      if (Object.prototype.hasOwnProperty.call(transitional, value)) {
         return {
-          label: value.charAt(0).toUpperCase() + value.slice(1),
+          label: this._localize(transitional[value]),
           cssClass: "idle",
           tone: "idle",
         };
@@ -1403,7 +1595,7 @@
 
     _prettyStatus(state, options = {}) {
       if (!state) {
-        return "Unknown";
+        return this._localize("status.unknown");
       }
       const value = state.toString();
       const lower = value.toLowerCase();
@@ -1411,10 +1603,21 @@
       const stopped = options.stoppedStates || this.config.stopped_states;
 
       if (running.includes(lower)) {
-        return "Running";
+        return this._localize("status.running");
       }
       if (stopped.includes(lower)) {
-        return "Stopped";
+        return this._localize("status.stopped");
+      }
+
+      const transitional = {
+        starting: "status.starting",
+        degraded: "status.degraded",
+        paused: "status.paused",
+        unknown: "status.unknown",
+        idle: "status.idle",
+      };
+      if (Object.prototype.hasOwnProperty.call(transitional, lower)) {
+        return this._localize(transitional[lower]);
       }
 
       return value.charAt(0).toUpperCase() + value.slice(1);
@@ -1480,9 +1683,12 @@
     _friendlyName(entityId) {
       const entity = this._getEntity(entityId);
       if (!entity) {
-        return entityId || "Container";
+        return entityId || this._localize("common.container");
       }
-      return entity.attributes && entity.attributes.friendly_name ? entity.attributes.friendly_name : entityId;
+      if (entity.attributes && entity.attributes.friendly_name) {
+        return entity.attributes.friendly_name;
+      }
+      return entityId || this._localize("common.container");
     }
 
     _notify(message) {

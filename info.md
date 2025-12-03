@@ -17,7 +17,7 @@ A simple Lovelace card that lets you monitor and control your Docker containers 
 2. Paste this repository URL, choose **Dashboard**, and click **Add**.
 3. Search for **Docker Card** under **Frontend**, open the entry, then click **Download**.
 4. Reload Lovelace resources (or restart Home Assistant) so the card is available.
-5. If HACS does not add it automatically, register `/hacsfiles/ha-docker-card/docker-card.js` as a Lovelace resource.
+5. If HACS does not add it automatically, register `/hacsfiles/lovelace-docker-card/docker-card.js` as a Lovelace resource.
 
 ## Example configuration
 

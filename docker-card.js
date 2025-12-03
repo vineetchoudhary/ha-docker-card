@@ -1,0 +1,1057 @@
+/*
+ * Docker Card
+ * A minimal Lovelace custom card to monitor and control Docker containers.
+ */
+
+
+(function () {
+  const CARD_NAME = "docker-card";
+  const CARD_DESCRIPTION = "Modern Docker container overview with start/stop toggles and restart actions.";
+
+  if (typeof window !== "undefined") {
+    window.customCards = window.customCards || [];
+    if (!window.customCards.some((card) => card.type === CARD_NAME)) {
+      window.customCards.push({
+        type: CARD_NAME,
+        name: "Docker Card",
+        description: CARD_DESCRIPTION,
+        preview: false,
+      });
+    }
+  }
+
+  const domainFromEntityId = (entityId) => {
+    if (typeof entityId !== "string") {
+      return undefined;
+    }
+    const separatorIndex = entityId.indexOf(".");
+    if (separatorIndex <= 0) {
+      return undefined;
+    }
+    return entityId.slice(0, separatorIndex);
+  };
+
+  const TOGGLE_SERVICE_MAP = {
+    switch: { on: "turn_on", off: "turn_off" },
+    input_boolean: { on: "turn_on", off: "turn_off" },
+    automation: { on: "turn_on", off: "turn_off" },
+    script: { on: "turn_on", off: "turn_off" },
+    light: { on: "turn_on", off: "turn_off" },
+    fan: { on: "turn_on", off: "turn_off" },
+  };
+
+  const RESTART_SERVICE_MAP = {
+    button: { service: "press" },
+    switch: { service: "turn_on" },
+    script: { service: "turn_on" },
+    automation: { service: "trigger" },
+  };
+
+  const cryptoRandom = () => {
+    if (typeof crypto !== "undefined" && crypto.randomUUID) {
+      return crypto.randomUUID();
+    }
+    if (typeof crypto !== "undefined" && crypto.getRandomValues) {
+      const array = new Uint32Array(4);
+      crypto.getRandomValues(array);
+      return Array.from(array, (num) => num.toString(16)).join("");
+    }
+    return `docker_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+  };
+
+  const isDefined = customElements.get(CARD_NAME);
+  if (isDefined) {
+    return;
+  }
+
+  class DockerCard extends HTMLElement {
+    constructor() {
+      super();
+      this.attachShadow({ mode: "open" });
+      this._pending = new Map();
+    }
+
+    setConfig(config) {
+      if (!config) {
+        throw new Error("Missing configuration for docker-card");
+      }
+
+      const normalizedConfig = { ...config };
+      if (normalizedConfig.stopped_color && !normalizedConfig.not_running_color) {
+        normalizedConfig.not_running_color = normalizedConfig.stopped_color;
+      }
+
+      const containers = this._normalizeContainers(
+        normalizedConfig.containers ?? normalizedConfig.container,
+      );
+
+      this.config = {
+        title: "Docker Card",
+        running_states: ["running", "on", "started", "up"],
+        stopped_states: ["stopped", "off", "exited", "down", "inactive"],
+        running_color: "var(--state-active-color, var(--success-color, #2e8f57))",
+        not_running_color: "var(--state-error-color, var(--error-color, #c22040))",
+        ...normalizedConfig,
+        containers,
+      };
+
+      if (!this.config.docker_overview || typeof this.config.docker_overview !== "object") {
+        this.config.docker_overview = {};
+      }
+
+      if (!this.config.containers.length) {
+        console.warn("docker-card: 'containers' is empty. The card will render a placeholder.");
+      }
+
+      this.render();
+    }
+
+    connectedCallback() {
+      this.render();
+    }
+
+    set hass(hass) {
+      this._hass = hass;
+      this.render();
+    }
+
+    getCardSize() {
+      return 4;
+    }
+
+    render() {
+      const root = this.shadowRoot;
+      if (!root || !this.config) {
+        return;
+      }
+
+      if (!this._styleEl) {
+        this._styleEl = document.createElement("style");
+        this._styleEl.textContent = this._style();
+        root.appendChild(this._styleEl);
+      }
+
+      let card = this._card;
+      if (!card) {
+        card = document.createElement("ha-card");
+        card.classList.add("docker-card");
+        this._card = card;
+        root.appendChild(card);
+      }
+
+      if (!this._hass) {
+        card.innerHTML = "<div class='placeholder'>Waiting for Home Assistant…</div>";
+        return;
+      }
+
+      card.innerHTML = "";
+
+      if (this.config.running_color) {
+        card.style.setProperty("--docker-card-running-color", this.config.running_color);
+      }
+      if (this.config.not_running_color) {
+        card.style.setProperty("--docker-card-not-running-color", this.config.not_running_color);
+      }
+
+      const header = this._buildHeader();
+      card.appendChild(header);
+
+      const overview = this._buildOverview();
+      if (overview) {
+        card.appendChild(overview);
+      }
+
+      const containerSection = this._buildContainers();
+      card.appendChild(containerSection);
+    }
+
+    _style() {
+      return `
+        :host {
+          display: block;
+        }
+        ha-card.docker-card {
+          padding: 1rem 1.25rem;
+          border-radius: var(--ha-card-border-radius, 12px);
+          background: var(--ha-card-background, var(--card-background-color, #fff));
+          box-shadow: var(--ha-card-box-shadow, none);
+          color: var(--primary-text-color);
+        }
+        .header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          margin-bottom: 1rem;
+        }
+        .title {
+          font-size: 1.1rem;
+          font-weight: 600;
+          color: var(--primary-text-color);
+        }
+        .status-pill {
+          font-size: 0.7rem;
+          text-transform: uppercase;
+          letter-spacing: 0.08em;
+          padding: 0.3rem 0.75rem;
+          border-radius: 999px;
+          background: var(--docker-card-running-color, var(--primary-color));
+          color: var(--text-primary-color, #fff);
+        }
+        .status-pill.running {
+          background: var(--docker-card-running-color, var(--state-active-color, var(--success-color, #2e8f57)));
+        }
+        .status-pill.offline,
+        .status-pill.not-running {
+          background: var(--docker-card-not-running-color, var(--state-error-color, var(--error-color)));
+        }
+        .status-pill.idle {
+          background: var(--state-warning-color, var(--warning-color));
+          color: var(--primary-text-color);
+        }
+        .docker-overview {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+          gap: 0.5rem;
+          margin-bottom: 1.25rem;
+        }
+        .overview-item {
+          display: flex;
+          align-items: center;
+          gap: 0.6rem;
+          padding: 0.45rem 0.75rem;
+          border-radius: var(--ha-card-border-radius, 10px);
+          background: var(--card-background-color, rgba(0, 0, 0, 0.04));
+          border: 1px solid var(--divider-color, rgba(0, 0, 0, 0.08));
+          min-height: 52px;
+        }
+        .overview-badge {
+          width: 2.1rem;
+          height: 2.1rem;
+          border-radius: 50%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          font-size: 0.8rem;
+          font-weight: 600;
+          text-transform: uppercase;
+          letter-spacing: 0.05em;
+          background: var(--divider-color, rgba(0, 0, 0, 0.08));
+          color: var(--primary-text-color);
+        }
+        .overview-text {
+          display: flex;
+          flex-direction: column;
+          gap: 0.15rem;
+          line-height: 1.2;
+        }
+        .overview-label {
+          font-size: 0.6rem;
+          letter-spacing: 0.08em;
+          text-transform: uppercase;
+          color: var(--secondary-text-color);
+        }
+        .overview-value {
+          font-size: 0.95rem;
+          font-weight: 600;
+          color: var(--primary-text-color);
+        }
+        .overview-value.running {
+          color: var(--docker-card-running-color, var(--state-active-color, var(--success-color, #2e8f57)));
+        }
+        .overview-value.not-running {
+          color: var(--docker-card-not-running-color, var(--state-error-color, var(--error-color, #c22040)));
+        }
+        .container-section {
+          display: flex;
+          flex-direction: column;
+          gap: 0.75rem;
+        }
+        .section-title {
+          font-size: 0.75rem;
+          font-weight: 600;
+          text-transform: uppercase;
+          letter-spacing: 0.08em;
+          color: var(--secondary-text-color);
+        }
+        .container-list {
+          display: flex;
+          flex-direction: column;
+          gap: 0.75rem;
+        }
+        .container-row {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding: 0.9rem 1rem;
+          border-radius: var(--ha-card-border-radius, 12px);
+          background: var(--card-background-color, rgba(0, 0, 0, 0.03));
+          border: 1px solid var(--divider-color, rgba(0, 0, 0, 0.08));
+          transition: border-color 0.2s ease, box-shadow 0.2s ease;
+        }
+        .container-row.running {
+          border-color: var(--docker-card-running-color, var(--state-active-color, var(--success-color, #2e8f57)));
+        }
+        .container-row.stopped,
+        .container-row.unknown {
+          border-color: var(--docker-card-not-running-color, var(--state-error-color, var(--error-color, #c22040)));
+        }
+        .container-row.pending {
+          opacity: 0.65;
+          cursor: progress;
+        }
+        .container-info {
+          display: flex;
+          flex-direction: column;
+          gap: 0.25rem;
+        }
+        .container-name {
+          font-weight: 600;
+          font-size: 1rem;
+          color: var(--primary-text-color);
+        }
+        .container-status {
+          font-size: 0.85rem;
+          text-transform: capitalize;
+        }
+        .container-status.running {
+          color: var(--docker-card-running-color, var(--state-active-color, var(--success-color, #2e8f57)));
+        }
+        .container-status.stopped,
+        .container-status.unknown {
+          color: var(--docker-card-not-running-color, var(--state-error-color, var(--error-color, #c22040)));
+        }
+        .actions {
+          display: flex;
+          align-items: center;
+          gap: 0.75rem;
+        }
+        .restart-button {
+          border: 1px solid var(--divider-color, rgba(0, 0, 0, 0.12));
+          background: transparent;
+          color: var(--primary-text-color);
+          font: inherit;
+          border-radius: 999px;
+          padding: 0.4rem 1rem;
+          cursor: pointer;
+          transition: background 0.2s ease, color 0.2s ease, border-color 0.2s ease;
+        }
+        .restart-button:hover {
+          border-color: var(--primary-color);
+          color: var(--primary-color);
+        }
+        .restart-button:active {
+          background: var(--primary-color);
+          color: var(--text-primary-color, #fff);
+        }
+        .restart-button:disabled,
+        ha-switch[disabled] {
+          opacity: 0.6;
+          cursor: not-allowed;
+        }
+        .empty-hint {
+          font-size: 0.85rem;
+          color: var(--secondary-text-color);
+          text-align: center;
+          padding: 0.75rem 0;
+        }
+        @media (max-width: 768px) {
+          ha-card.docker-card {
+            padding: 0.9rem;
+          }
+          .docker-grid {
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+          }
+          .container-row {
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 0.75rem;
+          }
+          .actions {
+            width: 100%;
+            justify-content: flex-start;
+          }
+        }
+      `;
+    }
+
+    _buildHeader() {
+      const wrapper = document.createElement("div");
+      wrapper.classList.add("header");
+
+      const title = document.createElement("div");
+      title.classList.add("title");
+      title.textContent = this.config.title || "Docker Card";
+      wrapper.appendChild(title);
+
+      const status = this._computeOverallStatus();
+      const statusPill = document.createElement("div");
+      statusPill.classList.add("status-pill");
+      if (status.cssClass) {
+        status.cssClass
+          .toString()
+          .split(/\s+/)
+          .filter(Boolean)
+          .forEach((cls) => statusPill.classList.add(cls));
+      }
+      if (status.tone === "not_running") {
+        statusPill.classList.add("not-running");
+      }
+      statusPill.style.setProperty("--docker-card-running-color", this.config.running_color);
+      statusPill.style.setProperty("--docker-card-not-running-color", this.config.not_running_color);
+      if (status.tone === "running" && status.accent) {
+        statusPill.style.background = status.accent;
+      } else if (status.tone === "not_running" && status.accent) {
+        statusPill.style.background = status.accent;
+      } else {
+        statusPill.style.removeProperty("background");
+      }
+      statusPill.textContent = status.label;
+      wrapper.appendChild(statusPill);
+
+      return wrapper;
+    }
+
+    _buildOverview() {
+      const overviewConfig = this.config.docker_overview;
+      if (!overviewConfig || typeof overviewConfig !== "object") {
+        return null;
+      }
+
+      const fetchState = (key) => {
+        const entityId = overviewConfig[key];
+        const entity = entityId ? this._getEntity(entityId) : undefined;
+        return {
+          entityId,
+          entity,
+          state: entity ? entity.state : undefined,
+        };
+      };
+
+      const total = fetchState("container_count");
+      const running = fetchState("containers_running");
+      const images = fetchState("image_count");
+      const dockerVersion = fetchState("docker_version");
+      const osName = fetchState("operating_system");
+      const osVersion = fetchState("operating_system_version");
+
+      const overviewItems = [];
+
+      const runningCount = this._parseIntState(running.state);
+      const totalCount = this._parseIntState(total.state);
+      const runningValue = `${this._formatStateValue(running.state)} / ${this._formatStateValue(total.state)}`;
+      if (!this._isPlaceholderValue(runningValue)) {
+        const varianceClass =
+          typeof runningCount === "number" && typeof totalCount === "number" && runningCount !== totalCount
+            ? "not-running"
+            : "running";
+        overviewItems.push({ label: "Running / Total", value: runningValue, badge: "rt", cssClass: varianceClass });
+      }
+
+      const imageValue = this._formatStateValue(images.state);
+      if (!this._isPlaceholderValue(imageValue)) {
+        overviewItems.push({ label: "Images", value: imageValue, badge: "img" });
+      }
+
+      const dockerValue = this._formatStateValue(dockerVersion.state);
+      if (!this._isPlaceholderValue(dockerValue)) {
+        overviewItems.push({ label: "Docker", value: dockerValue, badge: "doc" });
+      }
+
+      const osLabel = this._formatStateValue(osName.state);
+      const osVersionLabel = this._formatStateValue(osVersion.state);
+      let osValue = "";
+      if (osLabel !== "—" && osVersionLabel !== "—") {
+        osValue = `${osLabel} · ${osVersionLabel}`;
+      } else if (osLabel !== "—") {
+        osValue = osLabel;
+      } else if (osVersionLabel !== "—") {
+        osValue = osVersionLabel;
+      }
+      if (!this._isPlaceholderValue(osValue)) {
+        overviewItems.push({ label: "OS", value: osValue, badge: "os" });
+      }
+
+      if (!overviewItems.length) {
+        return null;
+      }
+
+      const overview = document.createElement("div");
+      overview.classList.add("docker-overview");
+
+      overviewItems.forEach((item) => {
+        const pill = document.createElement("div");
+        pill.classList.add("overview-item");
+
+        if (item.badge) {
+          const badge = document.createElement("div");
+          badge.classList.add("overview-badge");
+          badge.textContent = item.badge;
+          pill.appendChild(badge);
+        }
+
+        const text = document.createElement("div");
+        text.classList.add("overview-text");
+
+        const label = document.createElement("div");
+        label.classList.add("overview-label");
+        label.textContent = item.label;
+        text.appendChild(label);
+
+        const value = document.createElement("div");
+        value.classList.add("overview-value");
+        value.textContent = item.value;
+        if (item.cssClass) {
+          value.classList.add(item.cssClass);
+        }
+        text.appendChild(value);
+
+        pill.appendChild(text);
+        overview.appendChild(pill);
+      });
+
+      return overview;
+    }
+
+    _buildContainers() {
+      const section = document.createElement("div");
+      section.classList.add("container-section");
+
+      const title = document.createElement("div");
+      title.classList.add("section-title");
+      title.textContent = "Containers";
+      section.appendChild(title);
+
+      const list = document.createElement("div");
+      list.classList.add("container-list");
+      section.appendChild(list);
+
+      const { containers } = this.config;
+
+      if (!containers.length) {
+        const hint = document.createElement("div");
+        hint.classList.add("empty-hint");
+        hint.textContent = "No containers configured.";
+        list.appendChild(hint);
+        return section;
+      }
+
+      containers.forEach((container) => {
+        const key = this._containerKey(container);
+        const row = document.createElement("div");
+        row.classList.add("container-row");
+        row.dataset.containerKey = key;
+
+        const statusInfo = this._containerStatus(container);
+        row.classList.add(statusInfo.cssClass);
+        const runningColor = container.running_color || this.config.running_color;
+        const notRunningColor =
+          container.not_running_color || container.stopped_color || this.config.not_running_color;
+        if (runningColor) {
+          row.style.setProperty("--docker-card-running-color", runningColor);
+        }
+        if (notRunningColor) {
+          row.style.setProperty("--docker-card-not-running-color", notRunningColor);
+        }
+        if (this._pending.has(key)) {
+          row.classList.add("pending");
+        }
+
+        const infoBlock = document.createElement("div");
+        infoBlock.classList.add("container-info");
+
+        const name = document.createElement("div");
+        name.classList.add("container-name");
+        name.textContent = container.name || this._friendlyName(container.status_entity || container.switch_entity);
+        infoBlock.appendChild(name);
+
+        const state = document.createElement("div");
+        state.classList.add("container-status", statusInfo.cssClass);
+        state.textContent = statusInfo.label;
+        infoBlock.appendChild(state);
+
+        row.appendChild(infoBlock);
+
+        const actions = document.createElement("div");
+        actions.classList.add("actions");
+
+        const toggle = document.createElement("ha-switch");
+        toggle.checked = statusInfo.isRunning;
+        toggle.disabled = !statusInfo.canToggle || this._pending.has(key);
+        toggle.title = statusInfo.isRunning ? "Stop container" : "Start container";
+        toggle.addEventListener("change", (event) => {
+          event.stopPropagation();
+          const target = event.target;
+          if (!target || target.disabled) {
+            return;
+          }
+          const shouldRun = target.checked;
+          this._handleToggle(container, shouldRun, toggle);
+        });
+        actions.appendChild(toggle);
+
+        const restartButton = document.createElement("button");
+        restartButton.classList.add("restart-button");
+        restartButton.textContent = "Restart";
+        restartButton.disabled = !statusInfo.canRestart || this._pending.has(key);
+        restartButton.addEventListener("click", (event) => {
+          event.stopPropagation();
+          this._handleRestart(container, restartButton);
+        });
+        actions.appendChild(restartButton);
+
+        row.appendChild(actions);
+        list.appendChild(row);
+      });
+
+      return section;
+    }
+
+    _containerKey(container) {
+      if (container.id) {
+        return container.id;
+      }
+      if (!container.__dockerCardKey) {
+        const fallback =
+          container.name ||
+          container.status_entity ||
+          container.control_entity ||
+          container.switch_entity ||
+          cryptoRandom();
+        Object.defineProperty(container, "__dockerCardKey", {
+          value: fallback,
+          enumerable: false,
+          configurable: false,
+        });
+      }
+      return container.__dockerCardKey;
+    }
+
+    _normalizeContainers(input) {
+      if (!input) {
+        return [];
+      }
+
+      const result = [];
+      const addCandidate = (candidate) => {
+        const normalized = this._cloneContainer(candidate);
+        if (normalized) {
+          result.push(normalized);
+        }
+      };
+
+      if (Array.isArray(input) || (typeof input === "object" && typeof input[Symbol.iterator] === "function")) {
+        try {
+          for (const candidate of input) {
+            addCandidate(candidate);
+          }
+        } catch (error) {
+          console.warn("docker-card: Failed to iterate containers", error);
+        }
+      }
+
+      if (!result.length && typeof input === "object") {
+        const values = Object.values(input);
+        if (values.length) {
+          values.forEach(addCandidate);
+        } else {
+          addCandidate(input);
+        }
+      }
+
+      if (!result.length) {
+        console.warn("docker-card: Containers configuration could not be parsed", input);
+      }
+
+      return result;
+    }
+
+    _cloneContainer(candidate) {
+      if (!candidate || typeof candidate !== "object") {
+        return undefined;
+      }
+      let clone;
+      try {
+        if (typeof structuredClone === "function") {
+          clone = structuredClone(candidate);
+        }
+      } catch (error) {
+        console.warn("docker-card: structuredClone failed, falling back to shallow copy", error);
+      }
+      if (!clone) {
+        try {
+          clone = { ...candidate };
+        } catch (error) {
+          console.warn("docker-card: Unable to copy container config", candidate, error);
+          return undefined;
+        }
+      }
+      if (clone && clone.stopped_color && !clone.not_running_color) {
+        clone.not_running_color = clone.stopped_color;
+      }
+      return clone;
+    }
+
+    _containerStatus(container) {
+      const stateEntityId = container.status_entity || container.control_entity || container.switch_entity;
+      const entity = stateEntityId ? this._getEntity(stateEntityId) : undefined;
+      const rawState = entity ? entity.state : undefined;
+
+      const runningStates = container.running_states || this.config.running_states;
+      const stoppedStates = container.stopped_states || this.config.stopped_states;
+
+      const normalizedState = rawState ? rawState.toLowerCase() : undefined;
+      const isRunning = normalizedState ? runningStates.includes(normalizedState) : false;
+      const isStopped = normalizedState ? stoppedStates.includes(normalizedState) : false;
+
+      const label = this._prettyStatus(rawState, { runningStates, stoppedStates });
+
+      const cssClass = isRunning ? "running" : isStopped ? "stopped" : "unknown";
+
+      const controlEntityId = container.control_entity || container.switch_entity;
+      const toggleCapability = this._toggleCapability(controlEntityId, container.control_domain || container.switch_domain);
+      const canToggle = Boolean(toggleCapability || (container.start_service && container.stop_service));
+
+      const restartService = this._getRestartService(container);
+      const canRestart = Boolean(restartService);
+
+      return {
+        entity,
+        rawState,
+        label,
+        cssClass,
+        isRunning,
+        canToggle,
+        canRestart,
+      };
+    }
+
+    _entityDomain(entityId) {
+      return domainFromEntityId(entityId);
+    }
+
+    _toggleCapability(entityId, domainOverride) {
+      if (!entityId) {
+        return undefined;
+      }
+      const domain = domainOverride || this._entityDomain(entityId);
+      if (!domain) {
+        return undefined;
+      }
+      const mapping = TOGGLE_SERVICE_MAP[domain];
+      if (!mapping) {
+        return undefined;
+      }
+      return {
+        domain,
+        entity_id: entityId,
+        on: mapping.on,
+        off: mapping.off,
+      };
+    }
+
+    _restartCapability(entityId, domainOverride) {
+      if (!entityId) {
+        return undefined;
+      }
+      const domain = domainOverride || this._entityDomain(entityId);
+      if (!domain) {
+        return undefined;
+      }
+      const mapping = RESTART_SERVICE_MAP[domain];
+      if (!mapping) {
+        return undefined;
+      }
+      return {
+        domain,
+        entity_id: entityId,
+        service: mapping.service,
+      };
+    }
+
+    _getRestartService(container) {
+      if (!container) {
+        return undefined;
+      }
+      if (container.restart_entity) {
+        const capability = this._restartCapability(container.restart_entity, container.restart_domain);
+        if (capability) {
+          return {
+            domain: capability.domain,
+            service: capability.service,
+            data: { entity_id: capability.entity_id },
+          };
+        }
+      }
+      return this._normalizeService(container.restart_service);
+    }
+
+    async _handleToggle(container, shouldRun, toggleEl) {
+      const key = this._containerKey(container);
+      if (!toggleEl) {
+        return;
+      }
+
+      const action = shouldRun ? "start" : "stop";
+      const serviceConfig = this._resolveToggleService(container, shouldRun);
+
+      if (!serviceConfig) {
+        this._notify(`No service configured to ${action} ${(container.name || "container")}.`);
+        toggleEl.checked = !shouldRun;
+        return;
+      }
+
+      toggleEl.disabled = true;
+      this._pending.set(key, action);
+      this.render();
+
+      try {
+        await this._callService(serviceConfig);
+        this._notify(`${action === "start" ? "Starting" : "Stopping"} ${container.name || "container"}…`);
+      } catch (error) {
+        console.error("docker-card toggle error", error);
+        this._notify(`Failed to ${action} ${container.name || "container"}. Check logs.`);
+        toggleEl.checked = !shouldRun;
+      } finally {
+        this._pending.delete(key);
+        toggleEl.disabled = false;
+        this.render();
+      }
+    }
+
+    async _handleRestart(container, buttonEl) {
+      if (!buttonEl) {
+        return;
+      }
+
+      const serviceConfig = this._getRestartService(container);
+      if (!serviceConfig) {
+        this._notify(`No restart service configured for ${container.name || "container"}.`);
+        return;
+      }
+
+      const key = this._containerKey(container);
+      buttonEl.disabled = true;
+      this._pending.set(key, "restart");
+      this.render();
+
+      try {
+        await this._callService(serviceConfig);
+        this._notify(`Restarting ${container.name || "container"}…`);
+      } catch (error) {
+        console.error("docker-card restart error", error);
+        this._notify(`Failed to restart ${container.name || "container"}.`);
+      } finally {
+        this._pending.delete(key);
+        buttonEl.disabled = false;
+        this.render();
+      }
+    }
+
+    _resolveToggleService(container, shouldRun) {
+      const controlEntityId = container.control_entity || container.switch_entity;
+      const toggleCapability = this._toggleCapability(controlEntityId, container.control_domain || container.switch_domain);
+      if (toggleCapability) {
+        const serviceName = shouldRun ? toggleCapability.on : toggleCapability.off;
+        if (serviceName) {
+          return {
+            domain: toggleCapability.domain,
+            service: serviceName,
+            data: {
+              entity_id: toggleCapability.entity_id,
+            },
+          };
+        }
+      }
+
+      const candidate = shouldRun ? container.start_service : container.stop_service;
+      return this._normalizeService(candidate);
+    }
+
+    _normalizeService(service) {
+      if (!service) {
+        return undefined;
+      }
+
+      if (typeof service === "string") {
+        const parts = service.split(".");
+        if (parts.length !== 2) {
+          console.warn("Invalid service string", service);
+          return undefined;
+        }
+        return { domain: parts[0], service: parts[1], data: {} };
+      }
+
+      const { domain, service: srv, data, service_data, entity_id, target } = service;
+      if (!domain || !srv) {
+        console.warn("Invalid service object", service);
+        return undefined;
+      }
+
+      const payload = { ...(service_data || data || {}) };
+
+      if (entity_id && !payload.entity_id) {
+        payload.entity_id = entity_id;
+      }
+
+      if (target && !payload.target) {
+        payload.target = target;
+      }
+
+      return {
+        domain,
+        service: srv,
+        data: payload,
+      };
+    }
+
+    async _callService(service) {
+      if (!this._hass) {
+        throw new Error("Home Assistant instance unavailable");
+      }
+      return this._hass.callService(service.domain, service.service, service.data || {});
+    }
+
+    _computeOverallStatus() {
+      const entityId = this.config.docker_overview.status;
+      const entity = entityId ? this._getEntity(entityId) : undefined;
+      const rawState = entity ? entity.state : undefined;
+      const normalized = this._normalizeStatus(rawState);
+      const label = normalized.label || "Unknown";
+      const cssClass = normalized.cssClass || "idle";
+      const tone = normalized.tone || "idle";
+      const accent = this._statusAccent(tone);
+
+      return { label, cssClass, tone, accent };
+    }
+
+    _normalizeStatus(state) {
+      if (!state) {
+        return { label: "Unknown", cssClass: "idle", tone: "idle" };
+      }
+
+      const value = state.toString().toLowerCase();
+      if (["on", "running", "online", "ok", "true", "ready"].includes(value)) {
+        return { label: "Online", cssClass: "running", tone: "running" };
+      }
+      if (["off", "offline", "error", "problem", "false", "down"].includes(value)) {
+        return { label: "Offline", cssClass: "offline", tone: "not_running" };
+      }
+      if (["starting", "degraded", "paused", "unknown", "idle"].includes(value)) {
+        return {
+          label: value.charAt(0).toUpperCase() + value.slice(1),
+          cssClass: "idle",
+          tone: "idle",
+        };
+      }
+      return { label: this._formatStateValue(state), cssClass: "idle", tone: "idle" };
+    }
+
+    _statusAccent(tone) {
+      if (tone === "running") {
+        return this.config.running_color;
+      }
+      if (tone === "not_running") {
+        return this.config.not_running_color;
+      }
+      return undefined;
+    }
+
+    _prettyStatus(state, options = {}) {
+      if (!state) {
+        return "Unknown";
+      }
+      const value = state.toString();
+      const lower = value.toLowerCase();
+      const running = options.runningStates || this.config.running_states;
+      const stopped = options.stoppedStates || this.config.stopped_states;
+
+      if (running.includes(lower)) {
+        return "Running";
+      }
+      if (stopped.includes(lower)) {
+        return "Stopped";
+      }
+
+      return value.charAt(0).toUpperCase() + value.slice(1);
+    }
+
+    _formatStateValue(state) {
+      if (state === undefined || state === null) {
+        return "—";
+      }
+      if (state === "unknown" || state === "unavailable") {
+        return "—";
+      }
+      return state;
+    }
+
+    _isPlaceholderValue(value) {
+      if (value === undefined || value === null) {
+        return true;
+      }
+      const str = value.toString().trim();
+      if (!str) {
+        return true;
+      }
+      if (str === "—") {
+        return true;
+      }
+      if (/^(unknown|unavailable)$/i.test(str)) {
+        return true;
+      }
+      const stripped = str.replace(/[—\s/·]/g, "");
+      return stripped.length === 0;
+    }
+
+    _parseIntState(state) {
+      if (state === undefined || state === null) {
+        return undefined;
+      }
+      const str = state.toString().trim();
+      if (!str) {
+        return undefined;
+      }
+      const parsed = Number(str);
+      if (Number.isInteger(parsed)) {
+        return parsed;
+      }
+      const numericMatch = str.match(/-?\d+/);
+      if (numericMatch) {
+        const coerced = Number(numericMatch[0]);
+        if (Number.isInteger(coerced)) {
+          return coerced;
+        }
+      }
+      return undefined;
+    }
+
+    _getEntity(entityId) {
+      if (!entityId || !this._hass || !this._hass.states) {
+        return undefined;
+      }
+      return this._hass.states[entityId];
+    }
+
+    _friendlyName(entityId) {
+      const entity = this._getEntity(entityId);
+      if (!entity) {
+        return entityId || "Container";
+      }
+      return entity.attributes && entity.attributes.friendly_name ? entity.attributes.friendly_name : entityId;
+    }
+
+    _notify(message) {
+      if (!message) {
+        return;
+      }
+      const event = new CustomEvent("hass-notification", {
+        detail: { message },
+        bubbles: true,
+        composed: true,
+      });
+      this.dispatchEvent(event);
+    }
+  }
+
+  customElements.define(CARD_NAME, DockerCard);
+})();

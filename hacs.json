@@ -3,5 +3,5 @@
   "content_in_root": true,
   "render_readme": true,
   "filename": "docker-card.js",
-  "icon": "icon.png"
+  "icon": "icons/icon.png"
 }

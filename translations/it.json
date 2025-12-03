@@ -1,0 +1,54 @@
+{
+  "common": {
+    "card_title": "Scheda Docker",
+    "container": "container",
+    "containers": "Container"
+  },
+  "placeholders": {
+    "waiting": "In attesa di Home Assistant…",
+    "no_containers": "Nessun container configurato."
+  },
+  "overview": {
+    "running_total": "In esecuzione / Totale",
+    "images": "Immagini",
+    "docker": "Docker",
+    "os": "SO",
+    "running_total_aria": "Apri i dettagli dei container in esecuzione",
+    "images_aria": "Apri i dettagli delle immagini Docker",
+    "docker_aria": "Apri i dettagli della versione di Docker",
+    "os_aria": "Apri i dettagli del sistema operativo"
+  },
+  "aria": {
+    "open_status_details": "Apri i dettagli dello stato Docker",
+    "collapse_containers": "Comprimi l'elenco dei container",
+    "expand_containers": "Espandi l'elenco dei container"
+  },
+  "actions": {
+    "start": "avvia",
+    "stop": "arresta",
+    "restart": "Riavvia",
+    "start_container": "Avvia container",
+    "stop_container": "Arresta container"
+  },
+  "notifications": {
+    "starting": "Avvio di {name}…",
+    "stopping": "Arresto di {name}…",
+    "failed_start": "Impossibile avviare {name}. Controlla i log.",
+    "failed_stop": "Impossibile arrestare {name}. Controlla i log.",
+    "restarting": "Riavvio di {name}…",
+    "failed_restart": "Impossibile riavviare {name}.",
+    "missing_toggle": "Nessun servizio configurato per {action} {name}.",
+    "missing_restart": "Nessun servizio di riavvio configurato per {name}."
+  },
+  "status": {
+    "online": "Online",
+    "offline": "Offline",
+    "idle": "Inattivo",
+    "running": "In esecuzione",
+    "stopped": "Arrestato",
+    "unknown": "Sconosciuto",
+    "starting": "Avvio",
+    "degraded": "Degradato",
+    "paused": "In pausa"
+  }
+}

@@ -1,0 +1,54 @@
+{
+  "common": {
+    "card_title": "بطاقة Docker",
+    "container": "حاوية",
+    "containers": "الحاويات"
+  },
+  "placeholders": {
+    "waiting": "في انتظار Home Assistant…",
+    "no_containers": "لا توجد حاويات مُكوّنة."
+  },
+  "overview": {
+    "running_total": "قيد التشغيل / الإجمالي",
+    "images": "الصور",
+    "docker": "Docker",
+    "os": "النظام",
+    "running_total_aria": "فتح تفاصيل الحاويات قيد التشغيل",
+    "images_aria": "فتح تفاصيل صور Docker",
+    "docker_aria": "فتح تفاصيل إصدار Docker",
+    "os_aria": "فتح تفاصيل نظام التشغيل"
+  },
+  "aria": {
+    "open_status_details": "فتح تفاصيل حالة Docker",
+    "collapse_containers": "طي قائمة الحاويات",
+    "expand_containers": "توسيع قائمة الحاويات"
+  },
+  "actions": {
+    "start": "تشغيل",
+    "stop": "إيقاف",
+    "restart": "إعادة تشغيل",
+    "start_container": "تشغيل الحاوية",
+    "stop_container": "إيقاف الحاوية"
+  },
+  "notifications": {
+    "starting": "يتم تشغيل {name}…",
+    "stopping": "يتم إيقاف {name}…",
+    "failed_start": "تعذر تشغيل {name}. راجع السجلات.",
+    "failed_stop": "تعذر إيقاف {name}. راجع السجلات.",
+    "restarting": "يتم إعادة تشغيل {name}…",
+    "failed_restart": "تعذر إعادة تشغيل {name}.",
+    "missing_toggle": "لا توجد خدمة مهيأة لـ {action} {name}.",
+    "missing_restart": "لا توجد خدمة لإعادة تشغيل {name}."
+  },
+  "status": {
+    "online": "متصل",
+    "offline": "غير متصل",
+    "idle": "خامل",
+    "running": "قيد التشغيل",
+    "stopped": "متوقف",
+    "unknown": "غير معروف",
+    "starting": "جارٍ التشغيل",
+    "degraded": "متدهور",
+    "paused": "موقوف مؤقتًا"
+  }
+}

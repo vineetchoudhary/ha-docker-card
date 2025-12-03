@@ -1,0 +1,54 @@
+{
+  "common": {
+    "card_title": "Carte Docker",
+    "container": "conteneur",
+    "containers": "Conteneurs"
+  },
+  "placeholders": {
+    "waiting": "En attente de Home Assistant…",
+    "no_containers": "Aucun conteneur n'est configuré."
+  },
+  "overview": {
+    "running_total": "En cours / Total",
+    "images": "Images",
+    "docker": "Docker",
+    "os": "OS",
+    "running_total_aria": "Ouvrir les détails des conteneurs en cours d'exécution",
+    "images_aria": "Ouvrir les détails des images Docker",
+    "docker_aria": "Ouvrir les détails de la version de Docker",
+    "os_aria": "Ouvrir les détails du système d'exploitation"
+  },
+  "aria": {
+    "open_status_details": "Ouvrir les détails de l'état Docker",
+    "collapse_containers": "Réduire la liste des conteneurs",
+    "expand_containers": "Développer la liste des conteneurs"
+  },
+  "actions": {
+    "start": "démarrer",
+    "stop": "arrêter",
+    "restart": "Redémarrer",
+    "start_container": "Démarrer le conteneur",
+    "stop_container": "Arrêter le conteneur"
+  },
+  "notifications": {
+    "starting": "Démarrage de {name}…",
+    "stopping": "Arrêt de {name}…",
+    "failed_start": "Échec du démarrage de {name}. Consultez les journaux.",
+    "failed_stop": "Échec de l'arrêt de {name}. Consultez les journaux.",
+    "restarting": "Redémarrage de {name}…",
+    "failed_restart": "Échec du redémarrage de {name}.",
+    "missing_toggle": "Aucun service configuré pour {action} {name}.",
+    "missing_restart": "Aucun service de redémarrage configuré pour {name}."
+  },
+  "status": {
+    "online": "En ligne",
+    "offline": "Hors ligne",
+    "idle": "Inactif",
+    "running": "En cours d'exécution",
+    "stopped": "Arrêté",
+    "unknown": "Inconnu",
+    "starting": "Démarrage",
+    "degraded": "Dégradé",
+    "paused": "En pause"
+  }
+}

@@ -421,6 +421,7 @@
           gap: 0.75rem;
         }
         .container-row {
+          position: relative;
           display: flex;
           align-items: center;
           justify-content: flex-start;
@@ -431,6 +432,9 @@
           background: var(--card-background-color, rgba(0, 0, 0, 0.03));
           border: 1px solid var(--divider-color, rgba(0, 0, 0, 0.08));
           transition: border-color 0.2s ease, box-shadow 0.2s ease;
+        }
+        .container-row.has-resource-usage {
+          padding-bottom: 1.9rem;
         }
         .container-row.actionable {
           cursor: pointer;
@@ -476,24 +480,30 @@
         .container-status.unknown {
           color: var(--docker-card-not-running-color, var(--state-error-color, var(--error-color, #c22040)));
         }
-        .container-resources {
+        .container-usage-lines {
+          position: absolute;
+          left: 1rem;
+          right: 1rem;
+          bottom: 0.7rem;
           display: flex;
-          flex-wrap: wrap;
-          gap: 0.5rem 1rem;
-          font-size: 0.75rem;
-          color: var(--secondary-text-color);
-          margin-top: 0.25rem;
-        }
-        .resource-item {
-          display: flex;
-          align-items: center;
+          flex-direction: column;
           gap: 0.25rem;
+          pointer-events: none;
         }
-        .resource-label {
-          font-weight: 500;
+        .container-usage-line {
+          position: relative;
+          height: 0.25rem;
+          border-radius: 999px;
+          background: var(--docker-card-usage-track, rgba(0, 0, 0, 0.12));
+          overflow: hidden;
         }
-        .resource-value {
-          font-variant-numeric: tabular-nums;
+        .container-usage-line::before {
+          content: "";
+          position: absolute;
+          inset: 0;
+          width: var(--usage-fill, 0%);
+          background: var(--usage-color, var(--primary-color));
+          border-radius: inherit;
         }
         .actions {
           display: flex;
@@ -797,11 +807,6 @@
         state.textContent = statusInfo.label;
         infoBlock.appendChild(state);
 
-        const resources = this._buildResourceUsage(container);
-        if (resources) {
-          infoBlock.appendChild(resources);
-        }
-
         row.appendChild(infoBlock);
 
         const actions = document.createElement("div");
@@ -835,6 +840,11 @@
         actions.appendChild(restartButton);
 
         row.appendChild(actions);
+        const usageLines = this._buildResourceUsage(container);
+        if (usageLines) {
+          row.classList.add("has-resource-usage");
+          row.appendChild(usageLines);
+        }
         this._attachContainerActions(row, container, statusInfo, name.textContent || "");
 
         list.appendChild(row);
@@ -984,72 +994,78 @@
         return null;
       }
 
-      const cpuEntity = container.cpu_entity ? this._getEntity(container.cpu_entity) : undefined;
-      const memoryEntity = container.memory_entity ? this._getEntity(container.memory_entity) : undefined;
+      const cpuValue = container.cpu_entity
+        ? this._parseUsagePercentage(this._getEntity(container.cpu_entity)?.state)
+        : null;
+      const memoryValue = container.memory_entity
+        ? this._parseUsagePercentage(this._getEntity(container.memory_entity)?.state)
+        : null;
 
-      if (!cpuEntity && !memoryEntity) {
+      if (cpuValue === null && memoryValue === null) {
         return null;
       }
 
-      const resourcesDiv = document.createElement("div");
-      resourcesDiv.classList.add("container-resources");
+      const usageWrapper = document.createElement("div");
+      usageWrapper.classList.add("container-usage-lines");
 
-      if (cpuEntity) {
-        const cpuValue = this._formatPercentage(cpuEntity.state);
-        if (cpuValue !== null) {
-          const cpuItem = document.createElement("div");
-          cpuItem.classList.add("resource-item");
+      const descriptions = [];
 
-          const cpuLabel = document.createElement("span");
-          cpuLabel.classList.add("resource-label");
-          cpuLabel.textContent = `${this._localize("resources.cpu")}:`;
-          cpuItem.appendChild(cpuLabel);
-
-          const cpuVal = document.createElement("span");
-          cpuVal.classList.add("resource-value");
-          cpuVal.textContent = cpuValue;
-          cpuItem.appendChild(cpuVal);
-
-          resourcesDiv.appendChild(cpuItem);
+      const addLine = (value, key, type) => {
+        if (value === null) {
+          return;
         }
+        const clamped = Math.max(0, Math.min(value, 100));
+        const label = this._localize(key);
+        descriptions.push(`${label} ${clamped.toFixed(1)}%`);
+
+        const line = document.createElement("div");
+        line.classList.add("container-usage-line", `usage-${type}`);
+        line.style.setProperty("--usage-fill", `${clamped}%`);
+        line.style.setProperty("--usage-color", this._usageColor(clamped));
+        usageWrapper.appendChild(line);
+      };
+
+      addLine(cpuValue, "resources.cpu", "cpu");
+      addLine(memoryValue, "resources.memory", "memory");
+
+      if (!usageWrapper.children.length) {
+        return null;
       }
 
-      if (memoryEntity) {
-        const memValue = this._formatPercentage(memoryEntity.state);
-        if (memValue !== null) {
-          const memItem = document.createElement("div");
-          memItem.classList.add("resource-item");
+      usageWrapper.setAttribute("role", "img");
+      usageWrapper.setAttribute("aria-label", descriptions.join("; "));
 
-          const memLabel = document.createElement("span");
-          memLabel.classList.add("resource-label");
-          memLabel.textContent = `${this._localize("resources.memory")}:`;
-          memItem.appendChild(memLabel);
-
-          const memVal = document.createElement("span");
-          memVal.classList.add("resource-value");
-          memVal.textContent = memValue;
-          memItem.appendChild(memVal);
-
-          resourcesDiv.appendChild(memItem);
-        }
-      }
-
-      return resourcesDiv.children.length > 0 ? resourcesDiv : null;
+      return usageWrapper;
     }
 
-    _formatPercentage(value) {
+    _parseUsagePercentage(value) {
       if (value === undefined || value === null) {
         return null;
       }
-      const str = value.toString().toLowerCase();
-      if (str === "unknown" || str === "unavailable" || str === "") {
+      const str = value.toString().trim();
+      if (!str) {
         return null;
       }
-      const num = parseFloat(value);
-      if (isNaN(num)) {
+      const lowered = str.toLowerCase();
+      if (lowered === "unknown" || lowered === "unavailable" || lowered === "none") {
         return null;
       }
-      return `${num.toFixed(1)}%`;
+      const normalized = str.endsWith("%") ? str.slice(0, -1) : str;
+      const num = Number.parseFloat(normalized);
+      if (Number.isNaN(num)) {
+        return null;
+      }
+      return num;
+    }
+
+    _usageColor(value) {
+      if (value < 50) {
+        return "var(--docker-card-usage-low, var(--state-success-color, #2e8f57))";
+      }
+      if (value < 80) {
+        return "var(--docker-card-usage-medium, var(--state-warning-color, #dfa000))";
+      }
+      return "var(--docker-card-usage-high, var(--state-error-color, #c22040))";
     }
 
     _translationUrl(language) {

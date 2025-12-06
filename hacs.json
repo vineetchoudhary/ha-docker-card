@@ -1,6 +1,7 @@
 {
   "name": "Docker Card",
-  "content_in_root": true,
+  "content_in_root": false,
   "render_readme": true,
+  "filename": "dist/docker-card.js",
   "icon": "icons/icon.png"
 }

@@ -35,7 +35,7 @@ Installation is easiest via the [Home Assistant Community Store (HACS)](https://
 
 ### 2. Manual install
 
-1. Copy `docker-card.js` to your Home Assistant `/config/www/docker-card/` folder.
+1. Copy everything inside the `dist/` folder (keep the `translations/` directory intact) into your Home Assistant `/config/www/docker-card/` folder.
 2. Add the resource through **Settings → Dashboards → Resources → +**:
    ```yaml
    url: /local/docker-card/docker-card.js
@@ -242,7 +242,7 @@ Once the entities above are available, wire them into the card configuration as 
 
 ## Development
 
-- Distributed bundle lives in `docker-card.js`
+- Distributed bundle lives in `dist/docker-card.js`
 - No build tooling required; the published file is ready-to-serve ES2021 JavaScript
 
 ## License

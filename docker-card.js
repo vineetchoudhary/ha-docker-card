@@ -794,11 +794,22 @@
         const infoBlock = document.createElement("div");
         infoBlock.classList.add("container-info");
 
-        const name = document.createElement("div");
-        name.classList.add("container-name");
-        name.textContent = container.name || this._friendlyName(container.status_entity || container.switch_entity);
-        infoBlock.appendChild(name);
-	
+		const nameRow = document.createElement("div");
+		nameRow.classList.add("container-name");
+
+		if (container.icon) {
+		  const icon = document.createElement("ha-icon");
+		  icon.setAttribute("icon", container.icon);
+		  icon.style.cssText = "--mdc-icon-size: 1rem; vertical-align: middle; margin-right: 0.35rem;";
+		  nameRow.appendChild(icon);
+		}
+
+		const nameText = document.createElement("span");
+		nameText.style.cssText = "vertical-align: middle;";
+		nameText.textContent = container.name || this._friendlyName(container.status_entity || container.switch_entity);
+		nameRow.appendChild(nameText);
+
+		infoBlock.appendChild(nameRow);	
 		const stateRow = document.createElement("div");
 		stateRow.style.cssText = "display:flex; align-items:center; gap:0.35rem;";
 

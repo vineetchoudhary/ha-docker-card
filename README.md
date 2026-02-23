@@ -1,7 +1,7 @@
 # Changes from Original version
-Added Icons for each container
-Added image info (which images used)
-Added Icon for Health status
+- Added Icons for each container -> icon: mdi:home-assistant
+- Added image info (which images used) -> image_version_entity: sensor.docker_home_assistant_image
+- Added Icon for Health status -> health_entity: sensor.docker_home_assistant_health
 
 # Docker Card
 

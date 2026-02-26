@@ -28,6 +28,9 @@
       docker_aria: "Open Docker version details",
       os_aria: "Open operating system details",
     },
+	container: {
+	  image: "Image"
+	},
     aria: {
       open_status_details: "Open Docker status details",
       collapse_containers: "Collapse container list",
@@ -469,6 +472,10 @@
           font-size: 0.85rem;
           text-transform: capitalize;
         }
+		.container-image-version {
+		  font-size: 0.75rem;
+		  color: var(--secondary-text-color);
+		}
         .container-status.running {
           color: var(--docker-card-running-color, var(--state-active-color, var(--success-color, #2e8f57)));
         }
@@ -787,15 +794,62 @@
         const infoBlock = document.createElement("div");
         infoBlock.classList.add("container-info");
 
-        const name = document.createElement("div");
-        name.classList.add("container-name");
-        name.textContent = container.name || this._friendlyName(container.status_entity || container.switch_entity);
-        infoBlock.appendChild(name);
+		const nameRow = document.createElement("div");
+		nameRow.classList.add("container-name");
 
-        const state = document.createElement("div");
-        state.classList.add("container-status", statusInfo.cssClass);
-        state.textContent = statusInfo.label;
-        infoBlock.appendChild(state);
+		if (container.icon) {
+		  const icon = document.createElement("ha-icon");
+		  icon.setAttribute("icon", container.icon);
+		  icon.style.cssText = "--mdc-icon-size: 1rem; vertical-align: middle; margin-right: 0.35rem;";
+		  nameRow.appendChild(icon);
+		}
+
+		const nameText = document.createElement("span");
+		nameText.style.cssText = "vertical-align: middle;";
+		nameText.textContent = container.name || this._friendlyName(container.status_entity || container.switch_entity);
+		nameRow.appendChild(nameText);
+
+		infoBlock.appendChild(nameRow);	
+		const stateRow = document.createElement("div");
+		stateRow.style.cssText = "display:flex; align-items:center; gap:0.35rem;";
+
+		const state = document.createElement("div");
+		state.classList.add("container-status", statusInfo.cssClass);
+		state.textContent = statusInfo.label;
+		stateRow.appendChild(state);
+
+		if (container.health_entity) {
+		  const healthEntity = this._getEntity(container.health_entity);
+		  const healthValue = healthEntity?.state?.toLowerCase();
+		  if (healthValue && healthValue !== "unknown" && healthValue !== "unavailable") {
+			const iconMap = {
+			  healthy:   { icon: "mdi:heart-pulse",           color: "#2e8f57" },
+			  unhealthy: { icon: "mdi:heart-broken",           color: "#c22040" },
+			  starting:  { icon: "mdi:heart-half-full",        color: "#f4b942" },
+			};
+			const cfg = iconMap[healthValue] ?? { icon: "mdi:help-circle-outline", color: "gray" };
+			const icon = document.createElement("ha-icon");
+			icon.setAttribute("icon", cfg.icon);
+			icon.style.setProperty("--mdc-icon-size", "1rem");
+			icon.style.color = cfg.color;
+			stateRow.appendChild(icon);
+		  }
+		}
+
+		infoBlock.appendChild(stateRow);
+
+		
+		// Lägg till image version direkt här
+		if (container.image_version_entity) {
+			const imageVersionEntity = this._getEntity(container.image_version_entity);
+			const imageValue = imageVersionEntity?.state;
+			if (imageValue && imageValue !== "unknown" && imageValue !== "unavailable") {
+				const imageVersion = document.createElement("div");
+				imageVersion.classList.add("container-image-version");
+				imageVersion.textContent = `${this._localize("container.image")}: ${imageValue}`;
+				infoBlock.appendChild(imageVersion);
+			}
+		}
 
         const resources = this._buildResourceUsage(container);
         if (resources) {
@@ -986,7 +1040,7 @@
 
       const cpuEntity = container.cpu_entity ? this._getEntity(container.cpu_entity) : undefined;
       const memoryEntity = container.memory_entity ? this._getEntity(container.memory_entity) : undefined;
-
+	  
       if (!cpuEntity && !memoryEntity) {
         return null;
       }
@@ -1033,7 +1087,7 @@
           resourcesDiv.appendChild(memItem);
         }
       }
-
+	  
       return resourcesDiv.children.length > 0 ? resourcesDiv : null;
     }
 
